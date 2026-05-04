@@ -1,4 +1,4 @@
-const Anthropic = require('@anthropic-ai/sdk');
+// npm パッケージ不要・Node.js 内蔵の fetch を使用する方式
 
 exports.handler = async (event) => {
   const headers = {
@@ -18,9 +18,10 @@ exports.handler = async (event) => {
   try {
     const { answers } = JSON.parse(event.body);
 
-    const client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    });
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error('API key is not configured');
+    }
 
     const systemPrompt = `あなたは松本さんのプライベート充実アドバイザーです。
 
@@ -62,14 +63,41 @@ exports.handler = async (event) => {
 
 この状況に合ったプライベート充実アイデアをJSON形式で提案してください。`;
 
-    const message = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
+    // npm パッケージ不要：Node.js 内蔵 fetch で Anthropic API を直接呼び出す
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-haiku-20241022',
+        max_tokens: 2048,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
     });
 
-    const responseText = message.content[0].text;
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('Anthropic API error:', response.status, errText);
+
+      if (response.status === 429 || response.status === 529) {
+        return {
+          statusCode: 429,
+          headers,
+          body: JSON.stringify({
+            error: 'budget_exceeded',
+            message: '本月の利用上限に達しました。永野さんが再開許可を出すまでお待ちください。',
+          }),
+        };
+      }
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const responseText = data.content[0].text;
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
@@ -78,20 +106,9 @@ exports.handler = async (event) => {
     } else {
       throw new Error('Invalid response format');
     }
+
   } catch (error) {
-    console.error('Error:', error);
-
-    if (error.status === 429 || error.message?.includes('quota') || error.message?.includes('rate_limit') || error.message?.includes('overloaded')) {
-      return {
-        statusCode: 429,
-        headers,
-        body: JSON.stringify({
-          error: 'budget_exceeded',
-          message: '本月の利用上限に達しました。永野さんが再開許可を出すまでお待ちください。',
-        }),
-      };
-    }
-
+    console.error('Function error:', error.message);
     return {
       statusCode: 500,
       headers,
