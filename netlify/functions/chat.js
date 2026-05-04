@@ -108,13 +108,13 @@ exports.handler = async (event) => {
     }
 
   } catch (error) {
-    console.error('Function error:', error.message);
+    console.error('Function error:', error.message, error.stack);
     return {
       statusCode: 500,
       headers,
       body: JSON.stringify({
         error: 'internal_error',
-        message: 'エラーが発生しました。もう一度お試しください。',
+        message: `[詳細] ${error.message || 'Unknown error'} | Node: ${process.version}`,
       }),
     };
   }
