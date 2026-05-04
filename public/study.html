@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>共通テスト対策 | 松本さんのツール</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <nav class="navbar">
+    <a href="index.html" class="navbar-brand">
+      <span class="logo-icon">✨</span>
+      <span>松本さんのツール</span>
+    </a>
+    <div class="navbar-links">
+      <a href="idea.html">💡 アイデア</a>
+      <a href="study.html" class="active">📚 勉強</a>
+    </div>
+  </nav>
+
+  <div class="container" id="app">
+    <!-- JS で描画 -->
+  </div>
+
+  <!-- 科目解除モーダル -->
+  <div class="modal-overlay" id="unlockModal" style="display:none" onclick="closeModal(event)">
+    <div class="modal-box">
+      <h3>🔒 科目の追加</h3>
+      <p id="modalMsg"></p>
+      <input type="text" class="modal-input" id="unlockCode" placeholder="解除コードを入力" />
+      <div class="modal-error" id="modalError">コードが正しくありません。永野さんにご確認ください。</div>
+      <div class="modal-actions">
+        <button class="btn btn-cancel" onclick="document.getElementById('unlockModal').style.display='none'">キャンセル</button>
+        <button class="btn btn-unlock btn" onclick="tryUnlock()">解除する</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/study-data.js"></script>
+  <script>
+    // ====================================================
+    // 状態
+    // ====================================================
+    let phase      = 'subjects';   // 'subjects' | 'learning'
+    let activeSubj = null;
+    let activeEra  = 0;
+    let activeMode = 'lecture';    // 'lecture' | 'quiz'
+    let pendingSubjectId = null;
+
+    // フラッシュカード状態
+    let quizCards     = [];
+    let quizIndex     = 0;
+    let quizFlipped   = false;
+    let quizCorrect   = 0;
+    let quizWrong     = 0;
+    let quizFinished  = false;
+
+    const app = document.getElementById('app');
+
+    // ====================================================
+    // ローカルストレージ：解除済み科目
+    // ====================================================
+    function getUnlocked() {
+      try { return JSON.parse(localStorage.getItem('unlocked_subjects') || '[]'); }
+      catch(e) { return []; }
+    }
+    function setUnlocked(arr) {
+      localStorage.setItem('unlocked_subjects', JSON.stringify(arr));
+    }
+    function isUnlocked(id) {
+      if (id === 'nihonshi') return true;
+      return getUnlocked().includes(id);
+    }
+
+    // ====================================================
+    // 科目選択画面
+    // ====================================================
+    function renderSubjects() {
+      const lockedHTML = LOCKED_SUBJECTS.map(s => {
+        const unlocked = isUnlocked(s.id);
+        return `
+          <div class="subject-card ${unlocked ? 'unlocked' : 'locked'}"
+               onclick="${unlocked ? `openSubject('${s.id}')` : `openLockModal('${s.id}', '${s.name.replace(/'/g, "\\'")}')`}">
+            <span class="lock-badge">${unlocked ? '✅ 解放済' : '🔒'}</span>
+            <div class="subj-icon">${s.icon}</div>
+            <div class="subj-name">${s.name}</div>
+          </div>
+        `;
+      }).join('');
+
+      app.innerHTML = `
+        <a href="index.html" class="back-link">← トップに戻る</a>
+        <div class="section-header">
+          <h1>📚 共通テスト対策</h1>
+          <p>講義で理解して、一問一答で定着させよう</p>
+        </div>
+
+        <div style="margin-bottom: 32px;">
+          <p style="font-size:0.85rem; font-weight:700; color:var(--gray); letter-spacing:1px; text-transform:uppercase; margin-bottom:14px;">
+            ✅ 開放済み科目
+          </p>
+          <div class="subjects-grid" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
+            <div class="subject-card unlocked" onclick="openSubject('nihonshi')">
+              <span class="lock-badge">✅ 解放済</span>
+              <div class="subj-icon">🏯</div>
+              <div class="subj-name">日本史</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p style="font-size:0.85rem; font-weight:700; color:var(--gray); letter-spacing:1px; text-transform:uppercase; margin-bottom:14px;">
+            🔒 追加可能な科目
+          </p>
+          <div class="subjects-grid">
+            ${lockedHTML}
+          </div>
+        </div>
+      `;
+    }
+
+    // ====================================================
+    // 学習画面
+    // ====================================================
+    function openSubject(subjId) {
+      activeSubj = subjId === 'nihonshi' ? STUDY_DATA.nihonshi : null;
+      if (!activeSubj) return;
+      activeEra  = 0;
+      activeMode = 'lecture';
+      phase = 'learning';
+      renderLearning();
+    }
+
+    function renderLearning() {
+      const subj = activeSubj;
+      const era  = subj.eras[activeEra];
+
+      const eraTabsHTML = subj.eras.map((e, i) => `
+        <button class="era-tab ${i === activeEra ? 'active' : ''}"
+                onclick="switchEra(${i})">${e.name}</button>
+      `).join('');
+
+      const modeTabsHTML = `
+        <div class="mode-tabs">
+          <button class="mode-tab ${activeMode === 'lecture' ? 'active' : ''}"
+                  onclick="switchMode('lecture')">📖 講義</button>
+          <button class="mode-tab ${activeMode === 'quiz' ? 'active' : ''}"
+                  onclick="switchMode('quiz')">🃏 一問一答</button>
+        </div>
+      `;
+
+      let contentHTML = '';
+      if (activeMode === 'lecture') {
+        contentHTML = `<div class="lecture-content">${era.lecture}</div>`;
+      } else {
+        contentHTML = renderQuiz(era);
+      }
+
+      app.innerHTML = `
+        <button class="back-link" onclick="goBackToSubjects()">← 科目選択に戻る</button>
+        <div class="section-header">
+          <h1>${subj.icon} ${subj.name}</h1>
+          <p>共通テスト対策</p>
+        </div>
+
+        <div class="era-tabs">${eraTabsHTML}</div>
+
+        <div style="margin-bottom:6px; font-size:0.82rem; color:var(--gray);">
+          📅 ${era.name}（${era.period}）
+        </div>
+
+        ${modeTabsHTML}
+
+        <div id="content-area">${contentHTML}</div>
+      `;
+    }
+
+    function renderQuiz(era) {
+      // 初回またはera変更時にカードを初期化
+      if (quizCards.length === 0 || quizCards[0]._era !== era.id) {
+        quizCards    = era.questions.map(q => ({ ...q, _era: era.id })).sort(() => Math.random() - 0.5);
+        quizIndex    = 0;
+        quizFlipped  = false;
+        quizCorrect  = 0;
+        quizWrong    = 0;
+        quizFinished = false;
+      }
+
+      if (quizFinished) {
+        const total  = quizCards.length;
+        const pct    = Math.round((quizCorrect / total) * 100);
+        return `
+          <div class="complete-wrap">
+            <span class="big-emoji">${pct >= 80 ? '🏆' : pct >= 60 ? '🌟' : '💪'}</span>
+            <h2>${pct >= 80 ? '素晴らしい！' : pct >= 60 ? 'よく頑張りました！' : 'もう一度挑戦しましょう！'}</h2>
+            <p>${total}問中 ${quizCorrect}問正解 / ${quizWrong}問不正解</p>
+            <div class="score-display">${pct}点</div>
+            <button class="btn btn-study" onclick="resetQuiz()">🔄 もう一度挑戦する</button>
+          </div>
+        `;
+      }
+
+      const card    = quizCards[quizIndex];
+      const remain  = quizCards.length - quizIndex;
+
+      return `
+        <div class="flashcard-stats">
+          <span class="stat-chip correct">✅ 正解 ${quizCorrect}</span>
+          <span class="stat-chip wrong">❌ 不正解 ${quizWrong}</span>
+          <span class="stat-chip remain">📋 残り ${remain}</span>
+        </div>
+
+        <p class="flip-hint">カードをタップして答えを確認 👆</p>
+
+        <div class="flashcard-wrap" style="min-height:200px; position:relative;">
+          <div class="flashcard ${quizFlipped ? 'flipped' : ''}" onclick="flipCard()"
+               style="min-height:200px; position:relative;">
+            <div class="flashcard-front" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px 28px; text-align:center;">
+              <span class="card-label">問 題</span>
+              <span class="card-q">${card.q}</span>
+            </div>
+            <div class="flashcard-back" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px 28px; text-align:center; transform:rotateY(180deg);">
+              <span class="card-label">答 え</span>
+              <span class="card-a">${card.a}</span>
+            </div>
+          </div>
+        </div>
+
+        ${quizFlipped ? `
+          <div class="card-actions">
+            <button class="btn btn-wrong" onclick="judgeCard(false)">❌ もう一度</button>
+            <button class="btn btn-correct" onclick="judgeCard(true)">✅ わかった！</button>
+          </div>
+        ` : ''}
+      `;
+    }
+
+    // ====================================================
+    // インタラクション
+    // ====================================================
+    function switchEra(idx) {
+      activeEra  = idx;
+      activeMode = 'lecture';
+      quizCards  = [];  // リセット
+      renderLearning();
+    }
+
+    function switchMode(mode) {
+      if (mode === 'quiz') quizCards = [];  // era切替と同様にリセット
+      activeMode = mode;
+      renderLearning();
+    }
+
+    function flipCard() {
+      quizFlipped = !quizFlipped;
+      // 再描画はレンダリング関数経由で
+      const area = document.getElementById('content-area');
+      if (area) area.innerHTML = renderQuiz(activeSubj.eras[activeEra]);
+    }
+
+    function judgeCard(correct) {
+      if (correct) quizCorrect++; else quizWrong++;
+      quizIndex++;
+      quizFlipped = false;
+      if (quizIndex >= quizCards.length) quizFinished = true;
+      const area = document.getElementById('content-area');
+      if (area) area.innerHTML = renderQuiz(activeSubj.eras[activeEra]);
+    }
+
+    function resetQuiz() {
+      quizCards   = [];
+      quizFinished = false;
+      const area = document.getElementById('content-area');
+      if (area) area.innerHTML = renderQuiz(activeSubj.eras[activeEra]);
+    }
+
+    function goBackToSubjects() {
+      phase = 'subjects';
+      quizCards = [];
+      renderSubjects();
+    }
+
+    // ====================================================
+    // ロックモーダル
+    // ====================================================
+    function openLockModal(subjId, subjName) {
+      pendingSubjectId = subjId;
+      document.getElementById('modalMsg').innerHTML =
+        `<strong>「${subjName}」</strong>を追加するには、<br>` +
+        `<span style="color:var(--primary);font-weight:700;">永野さんに500円をお支払いください。</span><br><br>` +
+        `お支払い後、永野さんから解除コードを受け取ってください。`;
+      document.getElementById('unlockCode').value   = '';
+      document.getElementById('modalError').style.display = 'none';
+      document.getElementById('unlockModal').style.display = 'flex';
+    }
+
+    function closeModal(e) {
+      if (e.target.id === 'unlockModal') {
+        document.getElementById('unlockModal').style.display = 'none';
+      }
+    }
+
+    function tryUnlock() {
+      const code  = document.getElementById('unlockCode').value.trim();
+      const subj  = LOCKED_SUBJECTS.find(s => s.id === pendingSubjectId);
+      if (!subj) return;
+
+      if (code === subj.code) {
+        const unlocked = getUnlocked();
+        if (!unlocked.includes(subj.id)) unlocked.push(subj.id);
+        setUnlocked(unlocked);
+        document.getElementById('unlockModal').style.display = 'none';
+        renderSubjects();
+      } else {
+        document.getElementById('modalError').style.display = 'block';
+      }
+    }
+
+    // ====================================================
+    // 初回描画
+    // ====================================================
+    renderSubjects();
+  </script>
+</body>
+</html>

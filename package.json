@@ -1,0 +1,11 @@
+{
+  "name": "matsumoto-tool",
+  "version": "1.0.0",
+  "description": "松本さんのプライベート充実ツール",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

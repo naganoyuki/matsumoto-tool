@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>アイデア提案 | 松本さんのツール</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <nav class="navbar">
+    <a href="index.html" class="navbar-brand">
+      <span class="logo-icon">✨</span>
+      <span>松本さんのツール</span>
+    </a>
+    <div class="navbar-links">
+      <a href="idea.html" class="active">💡 アイデア</a>
+      <a href="study.html">📚 勉強</a>
+    </div>
+  </nav>
+
+  <div class="container" id="app">
+    <!-- JS で描画 -->
+  </div>
+
+  <script>
+    // ====================================================
+    // 質問データ
+    // ====================================================
+    const QUESTIONS = [
+      {
+        id: 'mood',
+        title: '今日の気分は？',
+        sub: '今この瞬間の気持ちに一番近いものを選んでください',
+        options: [
+          { icon: '🔥', label: 'ワクワク・テンションが高い' },
+          { icon: '😌', label: 'まったりのんびりしたい' },
+          { icon: '💨', label: '気分をリフレッシュしたい' },
+          { icon: '🏆', label: '達成感・充実感がほしい' },
+          { icon: '😶', label: 'なんとなく元気がない' },
+        ],
+      },
+      {
+        id: 'time',
+        title: '今日使える自由な時間は？',
+        sub: 'だいたいの目安で大丈夫です',
+        options: [
+          { icon: '⏱️', label: '30分以内' },
+          { icon: '🕐', label: '1〜2時間くらい' },
+          { icon: '🌤️', label: '半日（3〜5時間）' },
+          { icon: '🌞', label: '1日まるごと使える' },
+        ],
+      },
+      {
+        id: 'companion',
+        title: '今日は誰と過ごしますか？',
+        sub: '',
+        options: [
+          { icon: '🧘', label: 'ひとりで過ごしたい' },
+          { icon: '👶', label: '家族・赤ちゃんと一緒に' },
+          { icon: '👫', label: '友人・知人と' },
+          { icon: '🔀', label: 'どちらでもいい' },
+        ],
+      },
+      {
+        id: 'energy',
+        title: '今日の体力・エネルギーレベルは？',
+        sub: '',
+        options: [
+          { icon: '⚡', label: '元気満々！何でも来い' },
+          { icon: '🙂', label: 'まあまあ、普通くらい' },
+          { icon: '😴', label: '少し疲れ気味…' },
+          { icon: '🛋️', label: 'かなり疲れているので体を休めたい' },
+        ],
+      },
+      {
+        id: 'budget',
+        title: '今日の予算感は？',
+        sub: '',
+        options: [
+          { icon: '🆓', label: 'できれば無料で楽しみたい' },
+          { icon: '💴', label: '〜1,000円くらいまで' },
+          { icon: '💵', label: '〜5,000円くらいまで' },
+          { icon: '💳', label: '気にしない、思い切り楽しむ' },
+        ],
+      },
+      {
+        id: 'location',
+        title: '屋内・屋外どちらが気分？',
+        sub: '',
+        options: [
+          { icon: '🌿', label: '屋外で過ごしたい' },
+          { icon: '🏠', label: '屋内でゆっくりしたい' },
+          { icon: '🔀', label: 'どちらでもOK' },
+        ],
+      },
+      {
+        id: 'weather',
+        title: '今日の天気・気候は？',
+        sub: 'アイデアの参考にします',
+        options: [
+          { icon: '☀️', label: '晴れ・気持ちいい天気' },
+          { icon: '⛅', label: '曇り・まあまあ' },
+          { icon: '🌧️', label: '雨・荒れ模様' },
+          { icon: '🥵', label: '暑い' },
+          { icon: '🥶', label: '寒い' },
+        ],
+      },
+    ];
+
+    // ====================================================
+    // 状態管理
+    // ====================================================
+    let currentStep = 0;
+    let answers = {};
+    let phase = 'questions'; // 'questions' | 'loading' | 'results' | 'error'
+
+    const app = document.getElementById('app');
+
+    // ====================================================
+    // レンダリング
+    // ====================================================
+    function render() {
+      if (phase === 'questions') renderQuestion();
+      else if (phase === 'loading') renderLoading();
+      else if (phase === 'results') renderResults(lastResults);
+      else if (phase === 'error') renderError(lastError);
+    }
+
+    function renderQuestion() {
+      const q = QUESTIONS[currentStep];
+      const total = QUESTIONS.length;
+      const pct = Math.round((currentStep / total) * 100);
+
+      app.innerHTML = `
+        <a href="index.html" class="back-link">← トップに戻る</a>
+
+        <div class="section-header">
+          <h1>💡 アイデア提案</h1>
+          <p>質問に答えるとAIがあなたに合ったアイデアを提案します</p>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span>質問 ${currentStep + 1} / ${total}</span>
+            <span>${pct}%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" style="width: ${pct}%"></div>
+          </div>
+        </div>
+
+        <div class="question-card">
+          <h2>${q.title}</h2>
+          ${q.sub ? `<p class="question-sub">${q.sub}</p>` : ''}
+          <div class="options-grid">
+            ${q.options.map((opt, i) => `
+              <button class="option-btn ${answers[q.id] === opt.label ? 'selected' : ''}"
+                      onclick="selectOption('${q.id}', '${opt.label.replace(/'/g, "\\'")}')">
+                <span class="opt-icon">${opt.icon}</span>
+                <span>${opt.label}</span>
+              </button>
+            `).join('')}
+          </div>
+
+          <div class="nav-buttons">
+            <button class="btn btn-outline" onclick="prevStep()" ${currentStep === 0 ? 'style="visibility:hidden"' : ''}>
+              ← 戻る
+            </button>
+            <button class="btn btn-primary" id="nextBtn"
+                    onclick="nextStep()"
+                    ${!answers[q.id] ? 'disabled' : ''}>
+              ${currentStep === total - 1 ? '✨ アイデアを見る' : '次へ →'}
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderLoading() {
+      app.innerHTML = `
+        <div class="loading-wrap">
+          <div class="loading-spinner"></div>
+          <p>AIが松本さんへのベストなアイデアを考えています…<br>少々お待ちください🌟</p>
+        </div>
+      `;
+    }
+
+    function renderResults(data) {
+      const ideas = data.ideas || [];
+      app.innerHTML = `
+        <a href="idea.html" class="back-link" onclick="resetAll()">← もう一度試す</a>
+
+        <div class="results-header">
+          <h2>✨ あなたへのアイデア</h2>
+          <p>今日の松本さんにぴったりの ${ideas.length} 個のアイデアです！</p>
+        </div>
+
+        <div class="ideas-grid">
+          ${ideas.map((idea, i) => `
+            <div class="idea-card">
+              <div class="idea-num">${String(i + 1).padStart(2, '0')}</div>
+              <div class="idea-body">
+                <div class="idea-title">${idea.title}</div>
+                <div class="idea-desc">${idea.description}</div>
+                <div class="idea-meta">
+                  <span class="idea-tag tag-cat">${idea.category}</span>
+                  <span class="idea-tag tag-time">⏱ ${idea.time}</span>
+                  <span class="idea-tag tag-cost">💴 ${idea.cost}</span>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="retry-wrap">
+          <button class="btn btn-primary" onclick="resetAll()" style="margin: 0 auto; display: inline-flex;">
+            🔄 別の状況で試す
+          </button>
+        </div>
+      `;
+    }
+
+    function renderError(msg) {
+      app.innerHTML = `
+        <a href="idea.html" class="back-link" onclick="resetAll()">← やり直す</a>
+        <div class="error-box">
+          <p style="font-size:1.5rem;margin-bottom:8px">⚠️</p>
+          <p>${msg || 'エラーが発生しました。もう一度お試しください。'}</p>
+        </div>
+        <div class="retry-wrap">
+          <button class="btn btn-primary" onclick="resetAll()" style="margin: 0 auto; display: inline-flex;">
+            🔄 最初からやり直す
+          </button>
+        </div>
+      `;
+    }
+
+    // ====================================================
+    // ロジック
+    // ====================================================
+    function selectOption(id, value) {
+      answers[id] = value;
+      render();
+    }
+
+    function nextStep() {
+      if (currentStep < QUESTIONS.length - 1) {
+        currentStep++;
+        render();
+      } else {
+        submitAnswers();
+      }
+    }
+
+    function prevStep() {
+      if (currentStep > 0) {
+        currentStep--;
+        render();
+      }
+    }
+
+    function resetAll() {
+      currentStep = 0;
+      answers = {};
+      phase = 'questions';
+      render();
+    }
+
+    let lastResults = null;
+    let lastError   = null;
+
+    async function submitAnswers() {
+      phase = 'loading';
+      render();
+      try {
+        const res = await fetch('/.netlify/functions/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answers }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          if (res.status === 429) {
+            lastError = data.message || '利用上限に達しました。しばらくお待ちください。';
+          } else {
+            lastError = data.message || 'エラーが発生しました。';
+          }
+          phase = 'error';
+        } else {
+          lastResults = data;
+          phase = 'results';
+        }
+      } catch (e) {
+        lastError = '通信エラーが発生しました。インターネット接続を確認してください。';
+        phase = 'error';
+      }
+      render();
+    }
+
+    // 初回レンダリング
+    render();
+  </script>
+</body>
+</html>
